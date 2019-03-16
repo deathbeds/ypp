@@ -1,0 +1,13 @@
+name: ypp
+channels:
+- conda-forge
+dependencies: 
+- sympy
+- pandas
+- graphviz 
+- scikit-learn
+- ipywidgets
+- ipywebrtc
+- matplotlib
+- pip:
+    - -rrequirements.txt
