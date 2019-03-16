@@ -4,6 +4,8 @@
 # '''`ypp` (_pronounced Yippee!) helps manager your interactive state. `ypp.Output` objects are evented `traitlets` or `ipywidgets`
 # that update as the interative state of an `IPython.InteractiveShell` is changed.  `ypp.Handler` objects are evented to change
 # within special `globals` and `locals` namepsaces.
+#
+# [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/deathbeds/ypp/e3a3868bf9eb9d051114540d86a8e5e94e78ae81?filepath=examples.ipynb)
 # '''
 
 # Standard Library
@@ -311,6 +313,8 @@ if ipywidgets:
             widget.description = name
             return widget
 
+    default_container = {"normal": Handler, "embedded": App}
+
 
 try:
     import ipywxyz
@@ -324,7 +328,7 @@ try:
                 layout={"height": "20vh"},
             )
 
-
+    default_container = {"normal": Handler, "embedded": App, "dockable": WXYZ}
 except:
     ...
 
@@ -353,9 +357,7 @@ turns out to be a great way to generate new dockpanels.
 
         @traitlets.default("mode")
         def default_mode(ypp):
-            return ipywidgets.SelectionSlider(
-                options=["normal", "embedded", "dockable"]
-            )
+            return ipywidgets.SelectionSlider(options=list(default_container.keys()))
 
         def __init__(ypp, *args, **kwargs):
             if "app" not in kwargs:
@@ -369,12 +371,11 @@ turns out to be a great way to generate new dockpanels.
             ypp.observe(ypp.switch_container, "value")
 
         def switch_container(ypp, change):
-            default_container = {"normal": Handler, "embedded": App, "dockable": WXYZ}[
-                change["new"]
-            ]
             ypp.children[-1].clear_output(True)
             with ypp.children[-1]:
-                IPython.display.display(default_container.default_container(ypp.app))
+                IPython.display.display(
+                    default_container[change["new"]].default_container(ypp.app)
+                )
 
 
 @IPython.core.magic.magics_class
@@ -383,7 +384,7 @@ class Magic(IPython.core.magic.Magics):
 ypp...
 >>> %%ypp
 ...        print(foo)
-WidgetOutput(...Output...)"""
+ypp(...Output...)"""
 
     @IPython.core.magic.line_magic("ypp")
     def line(self, line):
@@ -424,12 +425,12 @@ if __name__ == "__main__":
                 mode=black.FileMode(),
             )
         )
-        if 0:
+        if 10:
             with IPython.utils.capture.capture_output():
                 get_ipython().system(
-                    "pyreverse --show-builtin  --module-names=y -osvg -b ypp "
+                    "pyreverse --show-builtin  --module-names=y -osvg  -b ypp "
                 )
-        display(IPython.display.SVG("classes.svg"))
+        display(IPython.display.Image("classes.png"))
         with IPython.utils.capture.capture_output():
             get_ipython().system("isort ypp.py")
     if 10:
