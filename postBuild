@@ -3,7 +3,7 @@ python setup.py develop
 
 git clone https://github.com/deathbeds/wxyz
 
-pushd wxyz
+cd wxyz
 
 set -eux
 python -m pip install -e ./packages/ipywxyz --ignore-installed --no-dependencies
@@ -12,4 +12,4 @@ jlpm bootstrap
 jupyter labextension install $(cat labex.txt) --no-build
 jupyter lab build
 
-popd
+cd ..
