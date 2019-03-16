@@ -8,5 +8,6 @@ dependencies:
     - scikit-learn
     - ipywidgets
     - ipywebrtc
+    - matplotlib
     - pip:
         - -rrequirements.txt
