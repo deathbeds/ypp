@@ -179,6 +179,7 @@ class Handler(traitlets.HasTraits):
 
     def globals_handler(App, change):
         if change["type"] == "change":
+            setattr(App, change["name"], change["new"])
             App.parent.user_ns[change["name"]] = change["new"]
 
     def call(App, change):
@@ -357,7 +358,11 @@ turns out to be a great way to generate new dockpanels.
             )
 
         def __init__(ypp, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+            if "app" not in kwargs:
+                super().__init__(app=App(*args, **kwargs))
+            else:
+                super().__init__(*args, **kwargs)
+
             ypp.children = ypp.mode, ipywidgets.Output()
             ypp.switch_container({"new": ypp.mode.value})
             traitlets.link((ypp, "value"), (ypp.mode, "value"))
@@ -382,17 +387,18 @@ WidgetOutput(...Output...)"""
 
     @IPython.core.magic.line_magic("ypp")
     def line(self, line):
-        return ypp(app=App(line))
+        return ypp(line)
 
     @IPython.core.magic.cell_magic("ypp")
     def cell(self, line, cell):
-        app, object = App(line), (ipywidgets and WidgetOutput or TraitletOutput)()
-        self.update(cell, object, {}),
-        app.observe(functools.partial(self.update, cell, object), line.split())
-        return object
+        app = ypp(line, output=None)
+        self.update(cell, app.app, {})
+        app.app.observe(functools.partial(self.update, cell, app.app), line.split())
+        return app
 
-    def update(self, cell, object, change):
-        with object:
+    def update(self, cell, app, change):
+        app.parent.events.trigger("post_execute")
+        with app.display["output"]:
             IPython.get_ipython().run_cell(cell)
 
 
