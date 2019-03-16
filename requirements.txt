@@ -1,3 +1,5 @@
 IPython
 git+https://github.com/deathbeds/pidgin@messy
+nbval
+pytest
 
