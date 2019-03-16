@@ -3,4 +3,6 @@ git+https://github.com/deathbeds/pidgin@messy
 nbval
 pytest
 python-slugify
-
+black
+isort
+pyflakes
