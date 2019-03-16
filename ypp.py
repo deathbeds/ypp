@@ -48,7 +48,9 @@ class TraitletOutput(IPython.display.DisplayHandle, Output):
 and then displays the `TraitletOutput.value`.  `TraitletOutput` manages updating existing display objects."""
 
         if TraitletOutput.description:
-            IPython.display.display(IPython.display.Markdown("#### " + TraitletOutput.description))
+            IPython.display.display(
+                IPython.display.Markdown("#### " + TraitletOutput.description)
+            )
         TraitletOutput.display(TraitletOutput.value)
 
     @traitlets.observe("value")
@@ -72,7 +74,11 @@ and then displays the `TraitletOutput.value`.  `TraitletOutput` manages updating
 
         capturer, captured = TraitletOutput.stack.pop()
         capturer.__exit__(*e)
-        outputs = captured.outputs and captured.outputs[0].data or {"text/plain": captured.stdout}
+        outputs = (
+            captured.outputs
+            and captured.outputs[0].data
+            or {"text/plain": captured.stdout}
+        )
         TraitletOutput.update(outputs, raw=True)
 
     def __init__(TraitletOutput, *args, **kwargs):
@@ -92,14 +98,17 @@ class Handler(traitlets.HasTraits):
                                >>> handler.parent
                                <...Shell...>""",
     )
-    children = traitlets.Tuple(help="""`Handler.children` holds the widgets for the `Handler`""")
+    children = traitlets.Tuple(
+        help="""`Handler.children` holds the widgets for the `Handler`"""
+    )
     display = traitlets.Dict(
         help="""`Handler.display` is a keyed version of the `Handler.children`.
                             >>> assert handler.children == tuple(handler.display.values())"""
     )
     wait = traitlets.Bool(False)
     display_cls = traitlets.Type(
-        TraitletOutput, help=""">>> assert issubclass(handler.display_cls, TraitletOutput)"""
+        TraitletOutput,
+        help=""">>> assert issubclass(handler.display_cls, TraitletOutput)""",
     )
     callable = traitlets.Any()
     globals = traitlets.Dict()
@@ -119,7 +128,9 @@ class Handler(traitlets.HasTraits):
                 for k, value in getattr(App, "__annotations__", {}).items()
             }
         )
-        super().__init__(parent=parent, wait=wait, callable=func, locals=locals, globals=globals)
+        super().__init__(
+            parent=parent, wait=wait, callable=func, locals=locals, globals=globals
+        )
         App.wait or App.parent.events.register("post_execute", App.user_ns_handler)
 
         if not App.callable and callable(App):
@@ -130,7 +141,9 @@ class Handler(traitlets.HasTraits):
                 App.display[name] = widget = App.widget_from_abbrev(name, object)
                 App.children += (widget,)
                 if "value" in widget.traits():
-                    App.add_traits(**{name: type(widget.traits()["value"])(widget.value)})
+                    App.add_traits(
+                        **{name: type(widget.traits()["value"])(widget.value)}
+                    )
                     if App.wait:
                         App.wait_handler
                     else:
@@ -139,7 +152,9 @@ class Handler(traitlets.HasTraits):
                     App.observe(App.globals_handler, name)
 
         if App.callable:
-            App.children += (App.display_cls(description="result", value=App.callable(App)),)
+            App.children += (
+                App.display_cls(description="result", value=App.callable(App)),
+            )
             App.observe(App.call)
 
     def user_ns_handler(App, *args):
@@ -286,15 +301,20 @@ if ipywidgets:
                 **App.parent.user_ns.get("__annotations__", {}),
                 **getattr(App, "__annotations__", {}),
             }.get(name, object)
-            if "pandas" in sys.modules and isinstance(object, sys.modules["pandas"].DataFrame):
+            if "pandas" in sys.modules and isinstance(
+                object, sys.modules["pandas"].DataFrame
+            ):
                 ...
             elif isinstance(annotation, list):
-                widget = ipywidgets.SelectMultiple(options=tuple(annotation), value=object)
+                widget = ipywidgets.SelectMultiple(
+                    options=tuple(annotation), value=object
+                )
             elif isinstance(annotation, ipywidgets.Widget):
                 widget = annotation
             else:
                 widget = ipywidgets.interactive.widget_from_abbrev(
-                    annotation, App.locals.get(name, App.parent.user_ns.get(name, object))
+                    annotation,
+                    App.locals.get(name, App.parent.user_ns.get(name, object)),
                 )
             widget = widget or WidgetOutput(description=name, value=object)
             widget.description = name
@@ -309,10 +329,14 @@ try:
 
     class WXYZ(App):
         container = traitlets.Instance(ipywxyz.DockBox)
-        _ = traitlets.default("container")(lambda x: ipywxyz.DockBox(layout={"height": "20vh"}))
+        _ = traitlets.default("container")(
+            lambda x: ipywxyz.DockBox(layout={"height": "20vh"})
+        )
 
         def __init__(App, *args, **kwargs):
-            App.container.children = Handler.__init__(App, *args, **kwargs) or App.children
+            App.container.children = (
+                Handler.__init__(App, *args, **kwargs) or App.children
+            )
 
 
 except:
@@ -328,23 +352,26 @@ def unload_ipython_extension(shell):
 
 
 if __name__ == "__main__":
-    import pidgin, nbconvert
+    import pidgin, nbconvert, black
 
     display = IPython.display.display
     with open("ypp.py", "w") as f:
         f.write(
-            __import__("black").format_str(
+            black.format_str(
                 nbconvert.PythonExporter(
                     config={"TemplateExporter": {"exclude_input_prompt": True}},
                     preprocessors=[pidgin.publishing.TanglePreProcessor()],
                 ).from_filename("ypp.md.ipynb")[0],
-                100,
+                mode=black.FileMode(),
             )
         )
         if 0:
             with IPython.utils.capture.capture_output():
-                get_ipython().system("pyreverse --show-builtin  --module-names=y -osvg -b ypp ")
+                get_ipython().system(
+                    "pyreverse --show-builtin  --module-names=y -osvg -b ypp "
+                )
         display(IPython.display.SVG("classes.svg"))
-        get_ipython().system("isort ypp.py")
+        with IPython.utils.capture.capture_output():
+            get_ipython().system("isort ypp.py")
     if 10:
         get_ipython().system("pyflakes ypp.py")
