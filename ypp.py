@@ -220,30 +220,6 @@ def pandas_ambiguity(nz=None):
         yield
 
 
-@IPython.core.magic.magics_class
-class Magic(IPython.core.magic.Magics):
-    """>>> %ypp foo
-<...App...>
->>> %%ypp
-...        print(foo)
-WidgetOutput(...Output...)"""
-
-    @IPython.core.magic.line_magic("ypp")
-    def line(self, line):
-        return App(line)
-
-    @IPython.core.magic.cell_magic("ypp")
-    def cell(self, line, cell):
-        app, object = App(line), (ipywidgets and WidgetOutput or TraitletOutput)()
-        self.update(cell, object, {}),
-        app.observe(functools.partial(self.update, cell, object), line.split())
-        return object
-
-    def update(self, cell, object, change):
-        with object:
-            IPython.get_ipython().run_cell(cell)
-
-
 if ipywidgets:
 
     class WidgetOutput(ipywidgets.Accordion, Output):
@@ -394,6 +370,30 @@ turns out to be a great way to generate new dockpanels.
             ypp.children[-1].clear_output(True)
             with ypp.children[-1]:
                 IPython.display.display(default_container.default_container(ypp.app))
+
+
+@IPython.core.magic.magics_class
+class Magic(IPython.core.magic.Magics):
+    """>>> %ypp foo
+ypp...
+>>> %%ypp
+...        print(foo)
+WidgetOutput(...Output...)"""
+
+    @IPython.core.magic.line_magic("ypp")
+    def line(self, line):
+        return ypp(app=App(line))
+
+    @IPython.core.magic.cell_magic("ypp")
+    def cell(self, line, cell):
+        app, object = App(line), (ipywidgets and WidgetOutput or TraitletOutput)()
+        self.update(cell, object, {}),
+        app.observe(functools.partial(self.update, cell, object), line.split())
+        return object
+
+    def update(self, cell, object, change):
+        with object:
+            IPython.get_ipython().run_cell(cell)
 
 
 def load_ipython_extension(shell):
