@@ -23,11 +23,10 @@ except:
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
     get_ipython().run_line_magic("reload_ext", "ypp")
+    from ypp import *
+    import ypp
+
     get_ipython().run_line_magic("reload_ext", "pidgin")
-
-
-"""```import ypp
-```"""
 
 
 class Output(traitlets.HasTraits):
@@ -86,6 +85,15 @@ and then displays the `TraitletOutput.value`.  `TraitletOutput` manages updating
         Output.__init__(TraitletOutput, *args, **kwargs)
 
 
+class ListOutput(TraitletOutput):
+    def _ipython_display_(ListOutput, before=None, after=None):
+        if ListOutput.description:
+            IPython.display.display(
+                IPython.display.Markdown("#### " + ListOutput.description)
+            )
+        IPython.display.display(*ListOutput.value)
+
+
 class Handler(traitlets.HasTraits):
     """`Handler` is a `traitlets` `object` that manager state between itself and the `Handler.parent`.
 >>> handler = Handler(foo=2)
@@ -107,12 +115,15 @@ class Handler(traitlets.HasTraits):
     )
     wait = traitlets.Bool(False)
     display_cls = traitlets.Type(
-        TraitletOutput,
-        help=""">>> assert issubclass(handler.display_cls, TraitletOutput)""",
+        TraitletOutput, help=""">>> assert issubclass(handler.display_cls, Output)"""
     )
     callable = traitlets.Any()
     globals = traitlets.Dict()
     locals = traitlets.Dict()
+    container = traitlets.Any()
+
+    def default_container(App):
+        return ListOutput(value=list(App.children))
 
     def __init__(App, *globals, wait=False, parent=None, **locals):
         func = locals.pop("callable", None)
@@ -157,6 +168,8 @@ class Handler(traitlets.HasTraits):
             )
             App.observe(App.call)
 
+        App.container = App.default_container()
+
     def user_ns_handler(App, *args):
         with pandas_ambiguity():
             [
@@ -190,7 +203,7 @@ class Handler(traitlets.HasTraits):
         )
 
     def _ipython_display_(App):
-        [object.display(object) for object in App.children]
+        IPython.display.display(App.container)
 
 
 @contextlib.contextmanager
@@ -273,13 +286,10 @@ if ipywidgets:
 if ipywidgets:
 
     class App(Handler):
-        container = traitlets.Instance(ipywidgets.VBox)
+        children = traitlets.Tuple()
         display_cls = traitlets.Type(WidgetOutput)
 
-        _ = traitlets.default("container")(lambda x: ipywidgets.VBox())
-
-        def __init__(App, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+        def default_container(App):
             children = []
             for alias, dict in zip("globals locals".split(), (App.globals, App.locals)):
                 if dict:
@@ -290,11 +300,15 @@ if ipywidgets:
                         )
                     )
                     for name, object in dict.items():
-                        children[-1].children[0].children += (App.display[name],)
+                        children[-1].children[0].children += (
+                            patch_child(App.display[name]),
+                        )
             App.container.children = tuple(children)
-
             if App.callable:
                 App.container.children += (App.children[-1],)
+            return ipywidgets.VBox(children=tuple(children))
+
+        _ = traitlets.default("container")(lambda x: ipywidgets.VBox())
 
         def widget_from_abbrev(App, name, object, *, widget=None):
             annotation = {
@@ -320,27 +334,66 @@ if ipywidgets:
             widget.description = name
             return widget
 
-        def _ipython_display_(App):
-            IPython.display.display(App.container)
-
 
 try:
     import ipywxyz
 
     class WXYZ(App):
-        container = traitlets.Instance(ipywxyz.DockBox)
-        _ = traitlets.default("container")(
-            lambda x: ipywxyz.DockBox(layout={"height": "20vh"})
-        )
+        container = traitlets.Instance(ipywxyz.DockBox, allow_none=True)
 
-        def __init__(App, *args, **kwargs):
-            App.container.children = (
-                Handler.__init__(App, *args, **kwargs) or App.children
+        def default_container(App):
+            return ipywxyz.DockBox(
+                children=tuple(map(patch_child, App.children)),
+                layout={"height": "20vh"},
             )
 
 
 except:
     ...
+
+
+def patch_child(child):
+    if isinstance(child, TraitletOutput):
+        output = ipywidgets.Output()
+        with output:
+            IPython.display.display(child)
+        return output
+    return child
+
+
+if ipywidgets:
+
+    class ypp(ipywidgets.VBox):
+        """The `ypp` application combines `Handler`, `App`, and `WXYZ` into a single widget that modifed interactively.  This
+turns out to be a great way to generate new dockpanels.
+
+>>> app=App(foo=2)
+>>> y = ypp.ypp(app=app, value='normal')"""
+
+        app = traitlets.Instance(Handler)
+        mode = traitlets.Any()
+        value = traitlets.Any("embedded")
+
+        @traitlets.default("mode")
+        def default_mode(ypp):
+            return ipywidgets.SelectionSlider(
+                options=["normal", "embedded", "dockable"]
+            )
+
+        def __init__(ypp, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            ypp.children = ypp.mode, ipywidgets.Output()
+            ypp.switch_container({"new": ypp.mode.value})
+            traitlets.link((ypp, "value"), (ypp.mode, "value"))
+            ypp.observe(ypp.switch_container, "value")
+
+        def switch_container(ypp, change):
+            default_container = {"normal": Handler, "embedded": App, "dockable": WXYZ}[
+                change["new"]
+            ]
+            ypp.children[-1].clear_output(True)
+            with ypp.children[-1]:
+                IPython.display.display(default_container.default_container(ypp.app))
 
 
 def load_ipython_extension(shell):
