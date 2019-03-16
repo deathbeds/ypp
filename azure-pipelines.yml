@@ -30,7 +30,7 @@ jobs:
 
   - script: |
       pip install pytest
-      pytest --nbval ypp.md.ipynb
+      pytest --nbval --current-env ypp.md.ipynb
     displayName: 'pytest'
 
   - task: PublishTestResults@2
