@@ -269,27 +269,31 @@ if ipywidgets:
         display_cls = traitlets.Type(WidgetOutput)
 
         def default_container(App):
-            children = []
+            App.container = ipywidgets.VBox()
             for alias, dict in zip("globals locals".split(), (App.globals, App.locals)):
                 if dict:
-                    children.append(
+                    App.container.children += (
                         ipywidgets.Accordion(
                             children=[ipywidgets.VBox(layout={"display": "flex"})],
                             _titles={0: alias},
-                        )
+                        ),
                     )
                     for name, object in dict.items():
-                        children[-1].children[0].children += (
+                        App.container.children[-1].children[0].children += (
                             patch_child(App.display[name]),
                         )
-            App.container.children = tuple(children)
             if App.callable:
                 App.container.children += (App.children[-1],)
-            return ipywidgets.VBox(children=tuple(children))
-
-        _ = traitlets.default("container")(lambda x: ipywidgets.VBox())
+            return App.container
 
         def widget_from_abbrev(App, name, object, *, widget=None):
+            try:
+                import ipywxyz
+
+                if isinstance(object, str):
+                    return ipywxyz.Editor(value=object, description=name)
+            except:
+                ...
             annotation = {
                 **App.parent.user_ns.get("__annotations__", {}),
                 **getattr(App, "__annotations__", {}),
@@ -320,8 +324,6 @@ try:
     import ipywxyz
 
     class WXYZ(App):
-        container = traitlets.Instance(ipywxyz.DockBox, allow_none=True)
-
         def default_container(App):
             return ipywxyz.DockBox(
                 children=tuple(map(patch_child, App.children)),
@@ -392,15 +394,17 @@ ypp(...Output...)"""
 
     @IPython.core.magic.cell_magic("ypp")
     def cell(self, line, cell):
-        app = ypp(line, output=None)
-        self.update(cell, app.app, {})
-        app.app.observe(functools.partial(self.update, cell, app.app), line.split())
+        app = ypp(line, source=cell, output=None)
+        self.update(app.app, {})
+        app.app.observe(
+            functools.partial(self.update, app.app), line.split() + ["source"]
+        )
         return app
 
-    def update(self, cell, app, change):
+    def update(self, app, change):
         app.parent.events.trigger("post_execute")
         with app.display["output"]:
-            IPython.get_ipython().run_cell(cell)
+            IPython.get_ipython().run_cell(app.source)
 
 
 def load_ipython_extension(shell):
@@ -426,11 +430,11 @@ if __name__ == "__main__":
             )
         )
         if 10:
-            with IPython.utils.capture.capture_output():
+            with IPython.utils.capture.capture_output(stderr=False, stdout=False):
                 get_ipython().system(
                     "pyreverse --show-builtin  --module-names=y -osvg  -b ypp "
                 )
-        display(IPython.display.Image("classes.png"))
+        display(IPython.display.Image("classes.svg"))
         with IPython.utils.capture.capture_output():
             get_ipython().system("isort ypp.py")
     if 10:
