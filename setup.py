@@ -25,11 +25,11 @@ setup_args = dict(
     setup_requires=[],
     tests_require=['nbval'],
     install_requires=[
-        "IPython"
+        "IPython", "pyld", "jsonschema", "jsonpatch", "jsondiff"
     ],
     extras_require={'i': ['ipywidgets']},
     include_package_data=True,
-    py_modules=['ypp'],
+    py_modules=['ypp', 'jason'],
     classifiers=(
         "Development Status :: 4 - Beta",
         "Framework :: IPython",
