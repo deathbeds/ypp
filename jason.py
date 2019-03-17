@@ -1,24 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import collections, abc, io, IPython, functools, jsonschema, jsonpointer, jsondiff, jsonpatch, pyld
+import collections, abc, io, IPython, functools
 
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
+__all__ = "Jay J Json D Dict L List S String Context Schema Patch T Toml".split()
 
 
 get_data = lambda x: get_data(x.data) if hasattr(x, "data") else x
-
-
-def dispatch(object):
-    object = get_data(object)
-    if isinstance(object, (dict, collections.UserDict)):
-        return D(object)
-    if isinstance(object, (list, collections.UserList)):
-        return L(object)
-    if isinstance(object, (str, collections.UserString)):
-        return S(object)
-    return object
 
 
 list_types = list, collections.UserList
@@ -30,15 +20,46 @@ class Stype(abc.ABCMeta):
     """Base class for short shortened string formatters."""
 
     def __mod__(Stype, str):
-        return dispatch(Stype.load(str))
+        return Jay.load(Stype.load(str))
+
+    format = __call__ = __mod__
 
 
-class J(metaclass=Stype):
-    """>>> J%'{"a": "b"}'
+class Jay(metaclass=Stype):
+    def load(object):
+        object = get_data(object)
+        if isinstance(object, (dict, collections.UserDict)):
+            return D(object)
+        if isinstance(object, (list, collections.UserList)):
+            return L(object)
+        if isinstance(object, (str, collections.UserString)):
+            return S(object)
+        return object
+
+
+J = Jay
+
+
+class Json(metaclass=Stype):
+    """>>> Json%'{"a": "b"}'
 {'a': 'b'}
 """
 
     load = __import__("json").loads
+
+
+class Csv(metaclass=Stype):
+    """>>> Csv('''a, b, c
+... 1, 2, 3''')
+[['a', ' b', ' c'], ['1', ' 2', ' 3']]
+"""
+
+    def load(object, *, delimiter=","):
+        import csv
+
+        if isinstance(object, tuple):
+            delimiter, object = object
+        return L(list(csv.reader(io.StringIO(object), delimiter=delimiter)))
 
 
 def cfg(str):
@@ -55,9 +76,9 @@ class Cfg(metaclass=Stype):
     load = cfg
 
 
-class O:
+class Object:
     def __getitem__(O, object):
-        return dispatch(jsonpointer.resolve_pointer(O.data, object))
+        return Jay(__import__("jsonpointer").resolve_pointer(O.data, object))
 
     def __add__(O, object, *, op="add"):
         if not isinstance(object, Patch):
@@ -82,7 +103,7 @@ class O:
     __sub__ = functools.partialmethod(__add__, op="remove")
 
     def __or__(O, object):
-        return jsondiff.diff(O.data, object)
+        return __import__("jsondiff").diff(O.data, object)
 
     def __and__(O, object):
         O.update({"@context": object})
@@ -116,7 +137,10 @@ class O:
         return Context(data.pop("@context")) % data
 
 
-class S(O, collections.UserString):
+O = Object
+
+
+class String(O, collections.UserString):
     """>>> s = S("foo")
 >>> type(s) # doctest: +ELLIPSIS
 <...S...>
@@ -127,7 +151,10 @@ class S(O, collections.UserString):
 """
 
 
-class L(O, collections.UserList):
+S = String
+
+
+class List(O, collections.UserList):
     """>>> l = L(['a', 'foo'])
 >>> type(l) # doctest: +ELLIPSIS
 <...L...>
@@ -145,7 +172,10 @@ class L(O, collections.UserList):
 """
 
 
-class Patch(jsonpatch.JsonPatch, L):
+L = List
+
+
+class Patch(__import__("jsonpatch").JsonPatch, L):
     """>>> l = L(['a', 'foo'])
 >>> type(l) # doctest: +ELLIPSIS
 <...L...>
@@ -156,15 +186,15 @@ class Patch(jsonpatch.JsonPatch, L):
 """
 
     def __call__(Patch, object):
-        return dispatch(Patch.apply(object))
+        return Jay(Patch.apply(object))
 
     @property
     def data(Patch):
         return Patch.patch
 
 
-class D(O, collections.UserDict):
-    """>>> d =J%'{"a": [1, {"b": ["foo", 3, "bar"]}]}'
+class Dict(O, collections.UserDict):
+    """>>> d = Json%'{"a": [1, {"b": ["foo", 3, "bar"]}]}'
 >>> d
 {'a': [1, {'b': ['foo', 3, 'bar']}]}
 >>> d += {'/c': ['baz', None]}
@@ -183,23 +213,19 @@ class D(O, collections.UserDict):
         return type(D)(D.data)
 
 
-def expand(str, ctx):
-    """>>> expand("gh", {"gh": "https://github.com"})
-'https://github.com'
-"""
-    return next(iter(pyld.jsonld.expand({str: "", "@context": ctx})[0]))
+D = Dict
 
 
 class Schema(D):
     """>>> Schema({'type': 'string'})('asdf')
 'asdf'
 
->>> with __import__('pytest').raises(jsonschema.ValidationError): 
+>>> with __import__('pytest').raises(__import__('jsonschema').ValidationError): 
 ...     Schema({'type': 'string'})(1)
 """
 
     def __call__(Schema, object):
-        jsonschema.validate(object, Schema.data)
+        __import__("jsonschema").validate(object, Schema.data)
         return object
 
 
@@ -212,52 +238,57 @@ class Context(D):
 """
 
     def __mod__(Context, object):
-        return D(pyld.jsonld.compact(object, Context.data))
+        return D(__import__("pyld").jsonld.compact(object, Context.data))
 
     def __matmul__(Context, object):
         if isinstance(object, str):
-            return expand(object, Context.data)
+            return Context.expand(object, Context.data)
         object.update({"@context": Context.data.get("@context", Context.data)})
-        return L(pyld.jsonld.expand(object))
+        return L(__import__("pyld").jsonld.expand(object))
+
+    @staticmethod
+    def expand(str, ctx):
+        """>>> Context.expand("gh", {"gh": "https://github.com"})
+'https://github.com'
+>>> Context.expand('q', {})
+'q'
+"""
+        object = __import__("pyld").jsonld.expand({str: "", "@context": ctx})
+        if object:
+            return next(iter(object[0]))
+        return str
 
 
-try:
-    import ruamel
-
-    def yaml(str):
-        return ruamel.yaml.load(io.StringIO(str), Loader=ruamel.yaml.Loader)
-
-    class Y(metaclass=Stype):
-        """>>> Y%'[a, b]'
+class Yaml(metaclass=Stype):
+    """>>> Y%'[a, b]'
 ['a', 'b']
 >>> Y%'{a: b}'       
 {'a': 'b'}
 """
 
-        load = yaml
+    def load(str):
+        import ruamel
+
+        return ruamel.yaml.load(io.StringIO(str), Loader=ruamel.yaml.Loader)
 
 
-except ModuleNotFoundError:
-    ...
+Y = Yaml
 
 
-try:
-    import toml
-
-    class T(metaclass=Stype):
-        """>>> T%'title = "TOML Example"'
+class Toml(metaclass=Stype):
+    """>>> T%'title = "TOML Example"'
 {'title': 'TOML Example'}
 """
 
-        load = toml.loads
+    def load(str):
+        return __import__("toml").loads(str)
 
 
-except ModuleNotFoundError:
-    ...
+T = Toml
 
 
 if __name__ == "__main__":
-    import pidgin, nbconvert, black
+    import pidgin, nbconvert, black, IPython
 
     display = IPython.display.display
     with open("jason.py", "w") as f:
