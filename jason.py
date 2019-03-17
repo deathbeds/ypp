@@ -191,6 +191,13 @@ def expand(str, ctx):
 
 
 class Schema(D):
+    """>>> Schema({'type': 'string'})('asdf')
+'asdf'
+
+>>> with __import__('pytest').raises(jsonschema.ValidationError): 
+...     Schema({'type': 'string'})(1)
+"""
+
     def __call__(Schema, object):
         jsonschema.validate(object, Schema.data)
         return object
