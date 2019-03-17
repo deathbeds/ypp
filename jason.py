@@ -96,7 +96,7 @@ class Cfg(metaclass=Stype):
 
 class Object:
     def __getitem__(O, object):
-        if isinstance(object, str) and str.startswith("/"):
+        if isinstance(object, str) and object.startswith("/"):
             return Jay(__import__("jsonpointer").resolve_pointer(O.data, object))
         return super().__getitem__(object)
 
@@ -265,6 +265,8 @@ class Context(D):
             return Context.expand(object, Context.data)
         object.update({"@context": Context.data.get("@context", Context.data)})
         return L(__import__("pyld").jsonld.expand(object))
+
+    __call__ = __matmul__
 
     @staticmethod
     def expand(str, ctx):
