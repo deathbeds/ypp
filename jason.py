@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import pidgin
-
-
 import collections, abc, io, IPython, functools, jsonschema, jsonpointer, jsondiff, jsonpatch, pyld
 
 if __name__ == "__main__":
@@ -262,14 +259,14 @@ if __name__ == "__main__":
                 nbconvert.PythonExporter(
                     config={"TemplateExporter": {"exclude_input_prompt": True}},
                     preprocessors=[pidgin.publishing.TanglePreProcessor()],
-                ).from_filename("jason.md.ipynb")[0],
+                ).from_filename("jason.ipynb")[0],
                 mode=black.FileMode(),
             )
         )
         if 0:
             with IPython.utils.capture.capture_output(stderr=False, stdout=False):
                 get_ipython().system(
-                    "pyreverse --show-builtin  --module-names=y -osvg  -b jason "
+                    "pyreverse --show-builtin  --module-names=y -osvg jason "
                 )
         display(IPython.display.SVG("classes.svg"))
         with IPython.utils.capture.capture_output():
