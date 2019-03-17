@@ -11,3 +11,5 @@ jsonschema
 jsonpatch
 jsondiff
 jsonpointer
+requests
+requests-cache
