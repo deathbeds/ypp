@@ -394,17 +394,17 @@ ypp(...Output...)"""
 
     @IPython.core.magic.cell_magic("ypp")
     def cell(self, line, cell):
-        app = ypp(line, source=cell, output=None)
-        self.update(app.app, {})
+        app = ypp(line, output=None)
+        self.update(cell, app.app, {})
         app.app.observe(
-            functools.partial(self.update, app.app), line.split() + ["source"]
+            functools.partial(self.update, cell, app.app), line.split() + ["source"]
         )
         return app
 
-    def update(self, app, change):
+    def update(self, source, app, change):
         app.parent.events.trigger("post_execute")
         with app.display["output"]:
-            IPython.get_ipython().run_cell(app.source)
+            IPython.get_ipython().run_cell(source)
 
 
 def load_ipython_extension(shell):
@@ -434,7 +434,7 @@ if __name__ == "__main__":
                 get_ipython().system(
                     "pyreverse --show-builtin  --module-names=y -osvg  -b ypp "
                 )
-        display(IPython.display.Image("classes.svg"))
+        display(IPython.display.SVG("classes.svg"))
         with IPython.utils.capture.capture_output():
             get_ipython().system("isort ypp.py")
     if 10:
