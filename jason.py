@@ -80,6 +80,13 @@ class Csv(metaclass=Stype):
         return L(list(csv.reader(io.StringIO(object), delimiter=delimiter)))
 
 
+class Img(metaclass=Stype):
+    def load(str):
+        return __import__("pytesseract").image_to_string(
+            __import__("PIL").Image.open(str)
+        )
+
+
 def cfg(str):
     parser = __import__("configparser").ConfigParser()
     parser.read_string(str)
@@ -334,3 +341,5 @@ if __name__ == "__main__":
     if 10:
         get_ipython().system("pyflakes jason.py")
     __import__("doctest").testmod()
+
+# https://mybinder.org/v2/gh/deathbeds/ypp/a4c56e9a3a761b32cb3c9d5b630f22f4a216dd67?filepath=examples.ipynb
