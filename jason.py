@@ -3,9 +3,26 @@
 
 import collections, abc, io, IPython, functools
 
+__all__ = (
+    "Jay",
+    "J",
+    "Json",
+    "D",
+    "Dict",
+    "L",
+    "List",
+    "S",
+    "String",
+    "Context",
+    "Schema",
+    "Patch",
+    "T",
+    "Toml",
+    "Y",
+    "Yaml",
+)
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
-__all__ = "Jay J Json D Dict L List S String Context Schema Patch T Toml".split()
 
 
 get_data = lambda x: get_data(x.data) if hasattr(x, "data") else x
@@ -78,7 +95,9 @@ class Cfg(metaclass=Stype):
 
 class Object:
     def __getitem__(O, object):
-        return Jay(__import__("jsonpointer").resolve_pointer(O.data, object))
+        if isinstance(object, str) and str.startswith("/"):
+            return Jay(__import__("jsonpointer").resolve_pointer(O.data, object))
+        return super().__getitem__(object)
 
     def __add__(O, object, *, op="add"):
         if not isinstance(object, Patch):
@@ -267,7 +286,7 @@ class Yaml(metaclass=Stype):
 """
 
     def load(str):
-        import ruamel
+        import ruamel.yaml
 
         return ruamel.yaml.load(io.StringIO(str), Loader=ruamel.yaml.Loader)
 
