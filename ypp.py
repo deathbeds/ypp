@@ -407,12 +407,8 @@ ypp(...Output...)"""
             IPython.get_ipython().run_cell(source)
 
 
-def load_ipython_extension(shell):
-    shell.register_magics(Magic)
-
-
-def unload_ipython_extension(shell):
-    ...
+if IPython.get_ipython():
+    IPython.get_ipython().register_magics(Magic)
 
 
 if __name__ == "__main__":
