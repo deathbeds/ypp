@@ -11,6 +11,7 @@
 # Standard Library
 import contextlib
 import functools
+import inspect
 import itertools
 import sys
 
@@ -21,6 +22,10 @@ try:
     import ipywidgets
 except:
     ipywidgets = None
+try:
+    import hypothesis
+except:
+    hypothesis = None
 
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
@@ -123,6 +128,7 @@ class Handler(traitlets.HasTraits):
     globals = traitlets.Dict()
     locals = traitlets.Dict()
     container = traitlets.Any()
+    annotations = traitlets.Dict()
 
     def default_container(App):
         return ListOutput(value=list(App.children))
@@ -130,20 +136,38 @@ class Handler(traitlets.HasTraits):
     def __init__(App, *globals, wait=False, parent=None, **locals):
         func = locals.pop("callable", None)
         parent = parent or IPython.get_ipython()
+        annotations = (
+            func
+            and getattr(func, "__annotations__", {})
+            or locals.pop("annotations", getattr(App, "__annotations__", {}))
+        )
+        locals.update({str: None for str in annotations if str not in locals})
+        if func:
+            locals.update(
+                {
+                    k: (
+                        annotations[k]
+                        if isinstance(annotations.get(k, ""), type)
+                        else lambda x: x
+                    )(v.default)
+                    for k, v in inspect.signature(func).parameters.items()
+                    if v.default is not inspect._empty
+                }
+            )
         globals = {
             str: parent.user_ns.get(str, None)
             for str in map(str.strip, itertools.chain(*map(str.split, globals)))
             if str not in locals
         }
-        locals.update(
-            {
-                k: locals.get(k, None) or value
-                for k, value in getattr(App, "__annotations__", {}).items()
-            }
-        )
         super().__init__(
-            parent=parent, wait=wait, callable=func, locals=locals, globals=globals
+            parent=parent,
+            wait=wait,
+            callable=func,
+            locals=locals,
+            globals=globals,
+            annotations=annotations,
         )
+
         App.wait or App.parent.events.register("post_execute", App.user_ns_handler)
 
         if not App.callable and callable(App):
@@ -151,26 +175,43 @@ class Handler(traitlets.HasTraits):
 
         for alias, dict in zip("globals locals".split(), (App.globals, App.locals)):
             for name, object in dict.items():
-                App.display[name] = widget = App.widget_from_abbrev(name, object)
+                annotation = App.annotations.get(name, object)
+                App.display[name] = widget = App.widget_from_abbrev(
+                    name, annotation, object
+                )
+                if object is None and widget.value is not None:
+                    object = (
+                        annotation(widget.value)
+                        if isinstance(annotation, type)
+                        else widget.value
+                    )
+                App.add_traits(**{name: traitlets.Any(object)})
+                setattr(App, name, object)
                 App.children += (widget,)
                 if "value" in widget.traits():
-                    App.add_traits(
-                        **{name: type(widget.traits()["value"])(widget.value)}
-                    )
                     if App.wait:
                         App.wait_handler
                     else:
-                        traitlets.link((widget, "value"), (App, name))
+                        traitlets.dlink(
+                            (App, name),
+                            (widget, "value"),
+                            [type(widget.value), None][widget.value is None],
+                        )
+                        traitlets.dlink(
+                            (widget, "value"),
+                            (App, name),
+                            [type(object), None][object is None],
+                        )
                 if name in App.globals:
                     App.observe(App.globals_handler, name)
 
         if App.callable:
-            App.children += (
-                App.display_cls(description="result", value=App.callable(App)),
-            )
-            App.observe(App.call)
+            App.children += (App.display_cls(description="result"),)
 
         App.container = App.default_container()
+
+        if App.callable:
+            App.observe(App.call)
 
     def user_ns_handler(App, *args):
         with pandas_ambiguity():
@@ -192,8 +233,8 @@ class Handler(traitlets.HasTraits):
     def wait_handler(App, change):
         ...
 
-    def widget_from_abbrev(App, name, object):
-        return App.display_cls(description=name, value=object)
+    def widget_from_abbrev(App, name, abbrev, value=None):
+        return App.display_cls(description=name, value=value)
 
     def __enter__(App):
         return App
@@ -207,6 +248,20 @@ class Handler(traitlets.HasTraits):
 
     def _ipython_display_(App):
         IPython.display.display(App.container)
+
+    @classmethod
+    def interact(Cls, callable):
+        return Cls(callable=wrap_callable(callable))
+
+
+if hypothesis:
+
+    def strategy_from_widget(widget):
+        return hypothesis.strategies.from_type(type(widget.value))
+
+    hypothesis.strategies.register_type_strategy(
+        ipywidgets.Widget, strategy_from_widget
+    )
 
 
 @contextlib.contextmanager
@@ -286,7 +341,7 @@ if ipywidgets:
                 App.container.children += (App.children[-1],)
             return App.container
 
-        def widget_from_abbrev(App, name, object, *, widget=None):
+        def widget_from_abbrev(App, name, abbrev, value, *, widget=None):
             try:
                 import ipywxyz
 
@@ -294,30 +349,67 @@ if ipywidgets:
                     return ipywxyz.Editor(value=object, description=name)
             except:
                 ...
-            annotation = {
-                **App.parent.user_ns.get("__annotations__", {}),
-                **getattr(App, "__annotations__", {}),
-            }.get(name, object)
+            if hypothesis and isinstance(abbrev, type):
+                abbrev = hypothesis.strategies.from_type(abbrev)
+                if isinstance(abbrev, hypothesis.strategies.SearchStrategy):
+                    return Strategy(description=name, strategy=abbrev, value=value)
+
             if "pandas" in sys.modules and isinstance(
-                object, sys.modules["pandas"].DataFrame
+                value, sys.modules["pandas"].DataFrame
             ):
                 ...
-            elif isinstance(annotation, list):
-                widget = ipywidgets.SelectMultiple(
-                    options=tuple(annotation), value=object
-                )
-            elif isinstance(annotation, ipywidgets.Widget):
-                widget = annotation
+            elif isinstance(abbrev, ipywidgets.Widget):
+                widget = abbrev
             else:
-                widget = ipywidgets.interactive.widget_from_abbrev(
-                    annotation,
-                    App.locals.get(name, App.parent.user_ns.get(name, object)),
-                )
-            widget = widget or WidgetOutput(description=name, value=object)
-            widget.description = name
+                widget = ipywidgets.interactive.widget_from_abbrev(abbrev, value)
+                if widget:
+                    widget.description = name
+            widget = widget or WidgetOutput(description=name, value=value)
+
             return widget
 
     default_container = {"normal": Handler, "embedded": App}
+
+
+try:
+    import ipywxyz
+
+    class WXYZ(App):
+        def default_container(App):
+            return ipywxyz.DockBox(
+                children=tuple(map(patch_child, App.children)),
+                layout={"height": "20vh"},
+            )
+
+    default_container = {"normal": Handler, "embedded": App, "dockable": WXYZ}
+except:
+    ...
+
+
+def wrap_callable(callable):
+    def call(app):
+        return callable(**{str: getattr(app, str) for str in callable.__annotations__})
+
+    return functools.wraps(callable)(call)
+
+
+if hypothesis:
+
+    class Strategy(ipywidgets.Select):
+        strategy = traitlets.Instance(hypothesis.strategies.SearchStrategy)
+        rows = traitlets.Int(10)
+
+        def __init__(Strategy, strategy, **kwargs):
+            value = kwargs.pop("value", None)
+            options = ([] if value is None else [value]) + [
+                strategy.example() for i in range(Strategy.rows)
+            ]
+            super().__init__(strategy=strategy, options=options, **kwargs)
+
+        @traitlets.observe("rows")
+        def _change_sample(Strategy, change):
+            if change["new"]:
+                Strategy.options = [strategy.example() for i in range(change["new"])]
 
 
 try:
