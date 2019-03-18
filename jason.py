@@ -21,6 +21,8 @@ __all__ = (
     "Toml",
     "Y",
     "Yaml",
+    "Graphviz",
+    "G",
 )
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
@@ -298,6 +300,13 @@ class Yaml(J):
 
 
 Y = Yaml
+
+
+class Graphviz(J):
+    load = staticmethod(lambda str: __import__("graphviz").Source(str))
+
+
+G = Graphviz
 
 
 class Toml(J):
