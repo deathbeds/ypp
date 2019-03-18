@@ -26,52 +26,51 @@ if __name__ == "__main__":
     get_ipython = IPython.get_ipython
 
 
-get_data = lambda x: get_data(x.data) if hasattr(x, "data") else x
-
-
 list_types = list, collections.UserList
 str_types = str, collections.UserString
 dict_types = dict, collections.UserDict
 
 
-class Stype(abc.ABCMeta):
+class Jay(abc.ABCMeta):
     """Base class for short shortened string formatters."""
 
-    def __mod__(Stype, str):
-        return Jay.load(Stype.load(str))
+    def __mod__(Jay, object, callable=None):
+        object = (callable or Jay.load)(object)
+        if not isinstance(object, J):
+            if isinstance(object, (dict, collections.UserDict)):
+                return D(object)
+            if isinstance(object, (list, collections.UserList)):
+                return L(object)
+            if isinstance(object, (str, collections.UserString)):
+                return S(object)
+        return object
 
     format = __call__ = __mod__
 
-
-class Jay(metaclass=Stype):
+    @staticmethod
     def load(object):
-        object = get_data(object)
-        if isinstance(object, (dict, collections.UserDict)):
-            return D(object)
-        if isinstance(object, (list, collections.UserList)):
-            return L(object)
-        if isinstance(object, (str, collections.UserString)):
-            return S(object)
         return object
 
 
-J = Jay
+class J(metaclass=Jay):
+    ...
 
 
-class Json(metaclass=Stype):
+class Json(J):
     """>>> Json%'{"a": "b"}'
 {'a': 'b'}
 """
 
-    load = __import__("json").loads
+    load = staticmethod(__import__("json").loads)
 
 
-class Csv(metaclass=Stype):
+class Csv(J):
     """>>> Csv('''a, b, c
 ... 1, 2, 3''')
 [['a', ' b', ' c'], ['1', ' 2', ' 3']]
 """
 
+    @staticmethod
     def load(object, *, delimiter=","):
         import csv
 
@@ -80,31 +79,24 @@ class Csv(metaclass=Stype):
         return L(list(csv.reader(io.StringIO(object), delimiter=delimiter)))
 
 
-class Img(metaclass=Stype):
-    def load(str):
-        return __import__("pytesseract").image_to_string(
-            __import__("PIL").Image.open(str)
-        )
-
-
 def cfg(str):
     parser = __import__("configparser").ConfigParser()
     parser.read_string(str)
     return {section: dict(parser[section]) for section in parser.sections()}
 
 
-class Cfg(metaclass=Stype):
+class Cfg(J):
     """>>> Cfg%'[header]\\na: b'
 {'header': {'a': 'b'}}
 """
 
-    load = cfg
+    load = staticmethod(cfg)
 
 
 class Object:
     def __getitem__(O, object):
         if isinstance(object, str) and object.startswith("/"):
-            return Jay(__import__("jsonpointer").resolve_pointer(O.data, object))
+            return J(__import__("jsonpointer").resolve_pointer(O.data, object))
         return super().__getitem__(object)
 
     def __add__(O, object, *, op="add"):
@@ -213,7 +205,7 @@ class Patch(__import__("jsonpatch").JsonPatch, L):
 """
 
     def __call__(Patch, object):
-        return Jay(Patch.apply(object))
+        return J(Patch.apply(object))
 
     @property
     def data(Patch):
@@ -241,6 +233,9 @@ class Dict(O, collections.UserDict):
 
 
 D = Dict
+
+
+d = Json % '{"a": [1, {"b": ["foo", 3, "bar"]}]}'
 
 
 class Schema(D):
@@ -288,13 +283,14 @@ class Context(D):
         return str
 
 
-class Yaml(metaclass=Stype):
+class Yaml(J):
     """>>> Y%'[a, b]'
 ['a', 'b']
 >>> Y%'{a: b}'       
 {'a': 'b'}
 """
 
+    @staticmethod
     def load(str):
         import ruamel.yaml
 
@@ -304,11 +300,12 @@ class Yaml(metaclass=Stype):
 Y = Yaml
 
 
-class Toml(metaclass=Stype):
+class Toml(J):
     """>>> T%'title = "TOML Example"'
 {'title': 'TOML Example'}
 """
 
+    @staticmethod
     def load(str):
         return __import__("toml").loads(str)
 
