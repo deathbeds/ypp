@@ -9,6 +9,7 @@
 # '''
 
 # Standard Library
+import collections
 import contextlib
 import functools
 import inspect
@@ -32,6 +33,7 @@ if __name__ == "__main__":
     get_ipython().run_line_magic("reload_ext", "ypp")
     from ypp import *
     import ypp
+    from jason import *
 
     get_ipython().run_line_magic("reload_ext", "pidgin")
 
@@ -125,53 +127,43 @@ class Handler(traitlets.HasTraits):
         TraitletOutput, help=""">>> assert issubclass(handler.display_cls, Output)"""
     )
     callable = traitlets.Any()
-    globals = traitlets.Dict()
-    locals = traitlets.Dict()
+    globals = traitlets.Any()
+    locals = traitlets.Any()
     container = traitlets.Any()
-    annotations = traitlets.Dict()
+    annotations = traitlets.Any()
 
     def default_container(App):
         return ListOutput(value=list(App.children))
 
     def __init__(App, *globals, wait=False, parent=None, **locals):
-        func = locals.pop("callable", None)
         parent = parent or IPython.get_ipython()
-        annotations = getattr(func, "__annotations__", {})
-        annotations.update(getattr(App, "__annotations__", {}))
-        annotations.update(locals.pop("annotations", {}))
 
-        locals.update({str: None for str in annotations if str not in locals})
-        if func:
-            locals.update(
-                {
-                    k: (
-                        annotations[k]
-                        if isinstance(annotations.get(k, ""), type)
-                        else lambda x: x
-                    )(v.default)
-                    for k, v in inspect.signature(func).parameters.items()
-                    if v.default is not inspect._empty
-                }
-            )
-        globals = {
-            str: parent.user_ns.get(str, None)
-            for str in map(str.strip, itertools.chain(*map(str.split, globals)))
-            if str not in locals
-        }
+        globs = collections.ChainMap()
+        for glob in globals:
+            if glob not in locals or glob:
+                for key in glob.split():
+                    globs[key] = parent.user_ns.get(key, None)
+
         super().__init__(
             parent=parent,
             wait=wait,
-            callable=func,
-            locals=locals,
-            globals=globals,
-            annotations=annotations,
+            locals=collections.ChainMap(locals),
+            globals=globs,
+            callable=locals.pop("callable", None),
+            annotations=collections.ChainMap(),
         )
 
-        App.wait or App.parent.events.register("post_execute", App.user_ns_handler)
+        App.annotate()
+        App.localize()
+        App.add_traits()
+        App.container = App.default_container()
+        App.link()
 
+    def add_traits(App, **kwargs):
+        if kwargs:
+            return super().add_traits(**kwargs)
         if not App.callable and callable(App):
             App.callable = lambda _: App()
-
         for alias, dict in zip("globals locals".split(), (App.globals, App.locals)):
             for name, object in dict.items():
                 annotation = App.annotations.get(name, object)
@@ -184,60 +176,44 @@ class Handler(traitlets.HasTraits):
                         if isinstance(annotation, type)
                         else widget.value
                     )
-                App.add_traits(**{name: traitlets.Any(object)})
-                setattr(App, name, object)
+                super().add_traits(**{name: traitlets.Any(object)})
                 App.children += (widget,)
-                if "value" in widget.traits():
-                    if App.wait:
-                        App.wait_handler
-                    else:
-                        traitlets.dlink(
-                            (App, name),
-                            (widget, "value"),
-                            [type(widget.value), None][widget.value is None],
-                        )
-                        traitlets.dlink(
-                            (widget, "value"),
-                            (App, name),
-                            [type(object), None][object is None],
-                        )
-                if name in App.globals:
-                    App.observe(App.globals_handler, name)
-
-        for key, value in App.annotations.items():
-            if isinstance(value, Handler):
-                setattr(App, key, value)
-        App.container = App.default_container()
 
         if App.callable:
             App.children += (App.display_cls(description="result"),)
 
+    def localize(App):
+        App.locals.update(
+            {
+                str: getattr(App, str, None)
+                for str in App.annotations
+                if str not in App.locals
+            }
+        )
         if App.callable:
-            App.observe(App.call)
-        App.init_links()
+            App.locals.update(
+                {
+                    k: (
+                        App.annotations[k]
+                        if isinstance(App.annotations.get(k, ""), type)
+                        else lambda x: x
+                    )(v.default)
+                    for k, v in inspect.signature(App.callable).parameters.items()
+                    if v.default is not inspect._empty
+                }
+            )
 
-    def init_links(App):
-        for key in set(dir(App)).difference(dir(Handler)):
-            value = getattr(App, key)
-            if not key.startswith("_") and callable(value):
-                annotations = value.__annotations__
-                caller = getattr(App, key)
-                if annotations:
-                    returns = annotations.pop("return", None)
-                    if isinstance(returns, str):
-                        returns = App, returns
-                    for name, value in annotations.items():
-                        for value in (
-                            value.split() if isinstance(value, str) else [value]
-                        ):
-                            if returns:
-                                if isinstance(value, str):
-                                    traitlets.dlink((App, value), returns, caller)
-
-                                if isinstance(value, tuple) and len(value) == 2:
-                                    traitlets.dlink(value, returns, getattr(App, key))
-                            else:
-                                traitlets.observe(caller, value)
+    def annotate(App):
+        App.annotations.maps += (
+            {
+                k: App.parent.user_ns["__annotations__"][k]
+                for k in App.globals
+                if k in App.parent.user_ns.get("__annotations__", {})
+            },
+            getattr(App.callable, "__annotations__", {}),
+            getattr(App, "__annotations__", {}),
+            App.locals.pop("annotations", {}),
+        )
 
     def user_ns_handler(App, *args):
         with pandas_ambiguity():
@@ -271,6 +247,43 @@ class Handler(traitlets.HasTraits):
         App.unobserve(None), App.wait or App.parent.events.unregister(
             "post_execute", App.user_ns_handler
         )
+
+    def link(App):
+        for key, widget in App.display.items():
+            if hasattr(widget, "value"):
+                traitlets.dlink(
+                    (App, key),
+                    (widget, "value"),
+                    None if widget.value is None else type(widget.value),
+                )
+                traitlets.dlink((widget, "value"), (App, key))
+            if key in App.globals:
+                App.observe(App.globals_handler, key)
+
+        for key in dir(App):
+            if key not in dir(Handler):
+                if not key.startswith("_") and not App.has_trait(key):
+                    object = getattr(App, key)
+                    if callable(object):
+                        annotations = object.__annotations__
+                        returns = annotations.pop("return", None)
+                        if isinstance(returns, str):
+                            returns = App, returns
+                        for name, value in annotations.items():
+                            for value in (
+                                value.split() if isinstance(value, str) else [value]
+                            ):
+                                if returns:
+                                    if isinstance(value, str):
+                                        value = App, value
+                                    if isinstance(value, tuple) and len(value) == 2:
+                                        traitlets.dlink(value, returns, object)
+                                else:
+                                    traitlets.observe(caller, object)
+
+        App.wait or App.parent.events.register("post_execute", App.user_ns_handler)
+        if App.callable:
+            App.observe(App.call)
 
     def _ipython_display_(App):
         IPython.display.display(App.container)
@@ -488,6 +501,12 @@ turns out to be a great way to generate new dockpanels.
                     default_container[change["new"]].default_container(ypp.app)
                 )
 
+        @classmethod
+        def interact(ypp, object):
+            if isinstance(object, type) and issubclass(object, Handler):
+                return ypp(app=object())
+            return ypp(app=App(callable=object))
+
 
 @IPython.core.magic.magics_class
 class Magic(IPython.core.magic.Magics):
@@ -544,3 +563,50 @@ if __name__ == "__main__":
             get_ipython().system("isort ypp.py")
     if 10:
         get_ipython().system("pyflakes ypp.py")
+
+
+class Graph(App):
+    def __init__(Graph, str):
+        import networkx, io
+
+        graph = networkx.nx_pydot.read_dot(io.StringIO(str))
+        globals = []
+        locals = {}
+        callables = {}
+        for key, values in graph.node.items():
+            if "label" in values:
+                object = eval(values["label"])
+                if callable(object):
+                    callables[key] = object
+                else:
+                    locals[key] = object
+            else:
+                glob = IPython.get_ipython().user_ns.get(key)
+                if callable(glob):
+                    callables[key] = glob
+                else:
+                    globals.append(key)
+
+        globals = " ".join(globals)
+        super().__init__(globals, **locals)
+        Graph.add_traits(
+            **{"graph": traitlets.Any(graph), "callables": traitlets.Dict(callables)}
+        )
+        keys = list(Graph.display.keys()) + list(Graph.callables.keys())
+        for source in keys:
+            for target in keys:
+                try:
+                    path = networkx.shortest_path(Graph.graph, source, target)
+                    if len(path) == 2:
+                        if target in Graph.display:
+                            traitlets.dlink((Graph, source), (Graph, target))
+                        else:
+                            Graph.observe(
+                                IPython.get_ipython().user_ns.get(target), target
+                            )
+                    elif len(path) == 3:
+                        traitlets.dlink(
+                            (Graph, source), (Graph, target), callables.get(path[1])
+                        )
+                except:
+                    ...
