@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import collections, abc, io, IPython, functools
+# Standard Library
+import abc
+import collections
+import functools
+import io
+
+import IPython
 
 __all__ = (
     "Jay",
@@ -56,6 +62,30 @@ class Jay(abc.ABCMeta):
 
 class J(metaclass=Jay):
     ...
+
+
+shell = get_ipython()
+
+
+shell.transform_cell("!echo stuff")
+
+
+class Echo(J):
+    '''echo "{}"'''
+
+    @classmethod
+    def load(Bang, str):
+        return IPython.get_ipython().system(Bang.__doc__.splitlines()[0].format(str))
+
+
+class Coffee(Echo):
+    """coffee -pbe "{}"
+
+If coffeescript is installed.
+    """
+
+
+C = Coffee
 
 
 class Json(J):
