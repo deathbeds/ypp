@@ -136,11 +136,10 @@ class Handler(traitlets.HasTraits):
     def __init__(App, *globals, wait=False, parent=None, **locals):
         func = locals.pop("callable", None)
         parent = parent or IPython.get_ipython()
-        annotations = (
-            func
-            and getattr(func, "__annotations__", {})
-            or locals.pop("annotations", getattr(App, "__annotations__", {}))
-        )
+        annotations = getattr(func, "__annotations__", {})
+        annotations.update(getattr(App, "__annotations__", {}))
+        annotations.update(locals.pop("annotations", {}))
+
         locals.update({str: None for str in annotations if str not in locals})
         if func:
             locals.update(
@@ -205,13 +204,40 @@ class Handler(traitlets.HasTraits):
                 if name in App.globals:
                     App.observe(App.globals_handler, name)
 
-        if App.callable:
-            App.children += (App.display_cls(description="result"),)
-
+        for key, value in App.annotations.items():
+            if isinstance(value, Handler):
+                setattr(App, key, value)
         App.container = App.default_container()
 
         if App.callable:
+            App.children += (App.display_cls(description="result"),)
+
+        if App.callable:
             App.observe(App.call)
+        App.init_links()
+
+    def init_links(App):
+        for key in set(dir(App)).difference(dir(Handler)):
+            value = getattr(App, key)
+            if not key.startswith("_") and callable(value):
+                annotations = value.__annotations__
+                caller = getattr(App, key)
+                if annotations:
+                    returns = annotations.pop("return", None)
+                    if isinstance(returns, str):
+                        returns = App, returns
+                    for name, value in annotations.items():
+                        for value in (
+                            value.split() if isinstance(value, str) else [value]
+                        ):
+                            if returns:
+                                if isinstance(value, str):
+                                    traitlets.dlink((App, value), returns, caller)
+
+                                if isinstance(value, tuple) and len(value) == 2:
+                                    traitlets.dlink(value, returns, getattr(App, key))
+                            else:
+                                traitlets.observe(caller, value)
 
     def user_ns_handler(App, *args):
         with pandas_ambiguity():
@@ -251,7 +277,13 @@ class Handler(traitlets.HasTraits):
 
     @classmethod
     def interact(Cls, callable):
-        return Cls(callable=wrap_callable(callable))
+        callable.app = (
+            callable()
+            if isinstance(callable, type)
+            else Cls(callable=wrap_callable(callable))
+        )
+        callable._ipython_display_ = callable.app._ipython_display_
+        return callable
 
 
 if hypothesis:
@@ -355,7 +387,7 @@ if ipywidgets:
                     return Strategy(description=name, strategy=abbrev, value=value)
 
             if "pandas" in sys.modules and isinstance(
-                value, sys.modules["pandas"].DataFrame
+                value, (Handler, sys.modules["pandas"].DataFrame)
             ):
                 ...
             elif isinstance(abbrev, ipywidgets.Widget):
@@ -369,21 +401,6 @@ if ipywidgets:
             return widget
 
     default_container = {"normal": Handler, "embedded": App}
-
-
-try:
-    import ipywxyz
-
-    class WXYZ(App):
-        def default_container(App):
-            return ipywxyz.DockBox(
-                children=tuple(map(patch_child, App.children)),
-                layout={"height": "20vh"},
-            )
-
-    default_container = {"normal": Handler, "embedded": App, "dockable": WXYZ}
-except:
-    ...
 
 
 def wrap_callable(callable):
