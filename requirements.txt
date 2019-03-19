@@ -13,3 +13,4 @@ jsondiff
 jsonpointer
 requests
 requests-cache
+hypothesis
