@@ -2,4 +2,15 @@ IPython
 git+https://github.com/deathbeds/pidgin@messy
 nbval
 pytest
-
+python-slugify
+black
+isort
+pyflakes
+pyld
+jsonschema
+jsonpatch
+jsondiff
+jsonpointer
+requests
+requests-cache
+hypothesis
