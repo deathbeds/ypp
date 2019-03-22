@@ -31,15 +31,13 @@ except:
 if __name__ == "__main__":
     get_ipython = IPython.get_ipython
     get_ipython().run_line_magic("reload_ext", "ypp")
-    from ypp import *
-    import ypp
     from jason import *
 
     get_ipython().run_line_magic("reload_ext", "pidgin")
 
 
 class Output(traitlets.HasTraits):
-    """`Output` is the base class for the `ypp` interactive `ypp.TraitletOutput` & `ypp.WidgetOutput`.
+    """`Output` is the base class for the ypp interactive TraitletOutputWidgetOutput.
 >>> Output()
 <...Output...>"""
 
@@ -103,6 +101,20 @@ class ListOutput(TraitletOutput):
         IPython.display.display(*ListOutput.value)
 
 
+@contextlib.contextmanager
+def pandas_ambiguity(nz=None):
+    pandas = sys.modules.get("pandas", None)
+    if pandas:
+        pandas.Series.__bool__ = pandas.DataFrame.__bool__ = lambda df: True
+        yield
+        try:
+            del pandas.DataFrame.__bool__, pandas.Series.__bool__
+        except:
+            ...
+    else:
+        yield
+
+
 class Handler(traitlets.HasTraits):
     """`Handler` is a `traitlets` `object` that manager state between itself and the `Handler.parent`.
 >>> handler = Handler(foo=2)
@@ -124,35 +136,39 @@ class Handler(traitlets.HasTraits):
     )
     wait = traitlets.Bool(False)
     display_cls = traitlets.Type(
-        TraitletOutput, help=""">>> assert issubclass(handler.display_cls, Output)"""
+        TraitletOutput, help=""">>> # assert issubclass(handler.display_cls, Output)"""
     )
+
     callable = traitlets.Any()
     globals = traitlets.Any()
     locals = traitlets.Any()
     container = traitlets.Any()
     annotations = traitlets.Any()
+    """>>> h = Handler('y')
+    >>> h.locals
+    ChainMap({}, {})"""
 
     def default_container(App):
         return ListOutput(value=list(App.children))
 
-    def __init__(App, *globals, wait=False, parent=None, **locals):
-        parent = parent or IPython.get_ipython()
-
+    def globalize(App, parent, globals, locals):
         globs = collections.ChainMap()
         for glob in globals:
             if glob not in locals or glob:
                 for key in glob.split():
                     globs[key] = parent.user_ns.get(key, None)
+        return globs
 
+    def __init__(App, *globals, wait=False, parent=None, **locals):
+        parent = parent or IPython.get_ipython()
         super().__init__(
             parent=parent,
             wait=wait,
             locals=collections.ChainMap(locals),
-            globals=globs,
+            globals=App.globalize(parent, globals, locals),
             callable=locals.pop("callable", None),
             annotations=collections.ChainMap(),
         )
-
         App.annotate()
         App.localize()
         App.add_traits()
@@ -183,13 +199,14 @@ class Handler(traitlets.HasTraits):
             App.children += (App.display_cls(description="result"),)
 
     def localize(App):
-        App.locals.update(
+        App.locals.maps += (
             {
                 str: getattr(App, str, None)
                 for str in App.annotations
-                if str not in App.locals
-            }
+                if (str not in App.locals) and (str not in App.globals)
+            },
         )
+
         if App.callable:
             App.locals.update(
                 {
@@ -207,8 +224,8 @@ class Handler(traitlets.HasTraits):
         App.annotations.maps += (
             {
                 k: App.parent.user_ns["__annotations__"][k]
-                for k in App.globals
-                if k in App.parent.user_ns.get("__annotations__", {})
+                for k in App.parent.user_ns.get("__annotations__", {})
+                if k in App.globals
             },
             getattr(App.callable, "__annotations__", {}),
             getattr(App, "__annotations__", {}),
@@ -250,15 +267,12 @@ class Handler(traitlets.HasTraits):
 
     def link(App):
         for key, widget in App.display.items():
-            if hasattr(widget, "value"):
-                traitlets.dlink(
-                    (App, key),
-                    (widget, "value"),
-                    None if widget.value is None else type(widget.value),
-                )
-                traitlets.dlink((widget, "value"), (App, key))
-            if key in App.globals:
-                App.observe(App.globals_handler, key)
+            if isinstance(widget, ipywidgets.Widget):
+                if hasattr(widget, "value"):
+                    traitlets.dlink((App, key), (widget, "value"), None)
+                    traitlets.dlink((widget, "value"), (App, key))
+                if key in App.globals:
+                    App.observe(App.globals_handler, key)
 
         for key in dir(App):
             if key not in dir(Handler):
@@ -309,20 +323,6 @@ if hypothesis:
     )
 
 
-@contextlib.contextmanager
-def pandas_ambiguity(nz=None):
-    pandas = sys.modules.get("pandas", None)
-    if pandas:
-        pandas.Series.__bool__ = pandas.DataFrame.__bool__ = lambda df: True
-        yield
-        try:
-            del pandas.DataFrame.__bool__, pandas.Series.__bool__
-        except:
-            ...
-    else:
-        yield
-
-
 if ipywidgets:
 
     class WidgetOutput(ipywidgets.Accordion, Output):
@@ -364,7 +364,7 @@ if ipywidgets:
 
 if ipywidgets:
 
-    class App(Handler):
+    class Widget(Handler):
         children = traitlets.Tuple()
         display_cls = traitlets.Type(WidgetOutput)
 
@@ -403,6 +403,9 @@ if ipywidgets:
                 value, (Handler, sys.modules["pandas"].DataFrame)
             ):
                 ...
+            elif isinstance(abbrev, __import__("param").Parameterized):
+                widget = WidgetOutput(value=abbrev)
+
             elif isinstance(abbrev, ipywidgets.Widget):
                 widget = abbrev
             else:
@@ -413,6 +416,7 @@ if ipywidgets:
 
             return widget
 
+    App = Widget
     default_container = {"normal": Handler, "embedded": App}
 
 
@@ -427,6 +431,7 @@ if hypothesis:
 
     class Strategy(ipywidgets.Select):
         strategy = traitlets.Instance(hypothesis.strategies.SearchStrategy)
+        options = traitlets.Tuple(allow_none=True)
         rows = traitlets.Int(10)
 
         def __init__(Strategy, strategy, **kwargs):
@@ -440,6 +445,12 @@ if hypothesis:
         def _change_sample(Strategy, change):
             if change["new"]:
                 Strategy.options = [strategy.example() for i in range(change["new"])]
+
+        def _ipython_display_(Strategy):
+            Strategy.options = [
+                Strategy.strategy.example() for i in range(Strategy.rows)
+            ]
+            super()._ipython_display_()
 
 
 try:
@@ -473,9 +484,9 @@ if ipywidgets:
 turns out to be a great way to generate new dockpanels.
 
 >>> app=App(foo=2)
->>> y = ypp.ypp(app=app, value='normal')"""
+>>> y = ypp(app=app, value='normal')"""
 
-        app = traitlets.Instance(Handler)
+        app = traitlets.Instance(Widget)
         mode = traitlets.Any()
         value = traitlets.Any("embedded")
 
@@ -518,11 +529,11 @@ ypp(...Output...)"""
 
     @IPython.core.magic.line_magic("ypp")
     def line(self, line):
-        return ypp(line)
+        return ypp(app=App(line))
 
     @IPython.core.magic.cell_magic("ypp")
     def cell(self, line, cell):
-        app = ypp(line, output=None)
+        app = ypp(line, source=cell, output=None)
         self.update(cell, app.app, {})
         app.app.observe(
             functools.partial(self.update, cell, app.app), line.split() + ["source"]
@@ -537,32 +548,6 @@ ypp(...Output...)"""
 
 if IPython.get_ipython():
     IPython.get_ipython().register_magics(Magic)
-
-
-if __name__ == "__main__":
-    import pidgin, nbconvert, black
-
-    display = IPython.display.display
-    with open("ypp.py", "w") as f:
-        f.write(
-            black.format_str(
-                nbconvert.PythonExporter(
-                    config={"TemplateExporter": {"exclude_input_prompt": True}},
-                    preprocessors=[pidgin.publishing.TanglePreProcessor()],
-                ).from_filename("ypp.md.ipynb")[0],
-                mode=black.FileMode(),
-            )
-        )
-        if 10:
-            with IPython.utils.capture.capture_output(stderr=False, stdout=False):
-                get_ipython().system(
-                    "pyreverse --show-builtin  --module-names=y -osvg  -b ypp "
-                )
-        display(IPython.display.SVG("classes.svg"))
-        with IPython.utils.capture.capture_output():
-            get_ipython().system("isort ypp.py")
-    if 10:
-        get_ipython().system("pyflakes ypp.py")
 
 
 class Graph(App):
@@ -588,10 +573,11 @@ class Graph(App):
                     globals.append(key)
 
         globals = " ".join(globals)
-        super().__init__(globals, **locals)
         Graph.add_traits(
             **{"graph": traitlets.Any(graph), "callables": traitlets.Dict(callables)}
         )
+        super().__init__(globals, **locals)
+
         keys = list(Graph.display.keys()) + list(Graph.callables.keys())
         for source in keys:
             for target in keys:
@@ -610,3 +596,29 @@ class Graph(App):
                         )
                 except:
                     ...
+
+
+if __name__ == "__main__":
+    import pidgin, nbconvert, black
+
+    display = IPython.display.display
+    with open("ypp.py", "w") as f:
+        f.write(
+            black.format_str(
+                nbconvert.PythonExporter(
+                    config={"TemplateExporter": {"exclude_input_prompt": True}},
+                    preprocessors=[pidgin.publishing.TanglePreProcessor()],
+                ).from_filename("ypp.md.ipynb")[0],
+                mode=black.FileMode(),
+            )
+        )
+        if 0:
+            with IPython.utils.capture.capture_output(stderr=False, stdout=False):
+                get_ipython().system(
+                    "pyreverse --show-builtin  --module-names=y -osvg  -b ypp "
+                )
+        display(IPython.display.SVG("classes.svg"))
+        with IPython.utils.capture.capture_output():
+            get_ipython().system("isort ypp.py")
+    if 10:
+        get_ipython().system("pyflakes ypp.py")

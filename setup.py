@@ -29,7 +29,7 @@ setup_args = dict(
     ],
     extras_require={'i': ['ipywidgets']},
     include_package_data=True,
-    py_modules=['ypp', 'jason'],
+    py_modules=['ypp', 'maus'],
     classifiers=(
         "Development Status :: 4 - Beta",
         "Framework :: IPython",
